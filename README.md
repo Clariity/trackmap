@@ -1,1 +1,1 @@
-# Trackmamp - a data gathering tool enabling the analysis of people nearby
+# Trackmap - a data gathering tool enabling the analysis of people nearby
