@@ -11,7 +11,7 @@ def setup():
         for i in range(1,4):
             c.execute("CREATE TABLE ap" + str(i) + """ (mac_address VARCHAR NOT NULL, signal_strength INT NOT NULL, timestamp VARCHAR NOT NULL,
                     prediction FLOAT NULL, info VARCHAR NOT NULL, date VARCHAR NOT NULL, PRIMARY KEY(mac_address, timestamp, date));""")
-        c.execute("CREATE TABLE data (mac_address VARCHAR, ap1 FLOAT, ap2 FLOAT, ap3 FLOAT, timestamp VARCHAR, x FLOAT, y FLOAT);")
+        c.execute("CREATE TABLE data (mac_address VARCHAR, info VARCHAR, ap1 FLOAT, ap2 FLOAT, ap3 FLOAT, timestamp VARCHAR, x FLOAT, y FLOAT);")
         conn.commit()
         conn.close()
     except Exception as e: print(e)
@@ -114,13 +114,13 @@ def check_time(keep_rows, row): #keep_rows = (mac_address, average prediction, s
                 count = keep_rows[i][4] + 1
                 total = keep_rows[i][5] + row[1]
                 average = total / count
-                copy = (keep_rows[i][0], average, keep_rows[i][2], keep_rows[i][3], count, total)
+                copy = (keep_rows[i][0], average, keep_rows[i][2], keep_rows[i][3], count, total, keep_rows[i][6])
                 keep_rows[i] = copy
                 return keep_rows
-        keep_rows.append((row[0], row[1], time, row[2], 1, row[1]))
+        keep_rows.append((row[0], row[1], time, row[2], 1, row[1], row[3]))
         return keep_rows
     else: #first entry
-        keep_rows.append((row[0], row[1], time, row[2], 1, row[1]))
+        keep_rows.append((row[0], row[1], time, row[2], 1, row[1], row[3]))
     return keep_rows
     
 def clean():
@@ -132,12 +132,12 @@ def clean():
             c.execute("SELECT DISTINCT(mac_address) FROM ap" + str(i) + ";")
             addresses = c.fetchall()
             for address in addresses:
-                c.execute("SELECT mac_address, prediction, timestamp FROM ap" + str(i) + " WHERE mac_address = ?;", address)
+                c.execute("SELECT mac_address, prediction, timestamp, info FROM ap" + str(i) + " WHERE mac_address = ?;", address)
                 rows = c.fetchall()
                 keep_rows = []
                 for j in range(len(rows)): #set new timestamp
                     time = rows[j][2].split('.')[0]
-                    new_row = (rows[j][0], rows[j][1], time)
+                    new_row = (rows[j][0], rows[j][1], time, rows[j][3])
                     rows[j] = new_row
                 rows = remove_outliers(rows)
                 for row in rows:
@@ -147,7 +147,7 @@ def clean():
                     time = revert_seconds(k[2])
                     c.execute("SELECT * FROM data WHERE mac_address = ? AND timestamp = ?;", (k[0], time))
                     if c.fetchone() == None:
-                        c.execute("INSERT INTO data(mac_address, ap" + str(i) + ", timestamp) VALUES (?,?,?);", (k[0], k[1], time))
+                        c.execute("INSERT INTO data(mac_address, info, ap" + str(i) + ", timestamp) VALUES (?,?,?,?);", (k[0], k[6], k[1], time))
                         conn.commit()
                     else:
                         c.execute("UPDATE data SET ap" + str(i) + " = ? WHERE mac_address = ? AND timestamp = ?;", (k[1], k[0], time))
@@ -165,7 +165,7 @@ def trilaterate():
     try:
         conn = lite.connect("data.db")
         c = conn.cursor()
-        c.execute("SELECT * FROM data;")
+        c.execute("SELECT mac_address, ap1, ap2, ap3, timestamp FROM data;")
         rows = c.fetchall()
         for row in rows:
             if row[1] != None and row[2] != None and row[3] != None:
@@ -173,8 +173,12 @@ def trilaterate():
                 t = (math.pow(ar1_x, 2.) - math.pow(ar2_x, 2.) + math.pow(ar1_y, 2.) - math.pow(ar2_y, 2.) + math.pow(row[2], 2.) - math.pow(row[1], 2.)) / 2.0
                 y = ((t * (ar2_x - ar3_x)) - (s * (ar2_x - ar1_x))) / (((ar1_y - ar2_y) * (ar2_x - ar3_x)) - ((ar3_y - ar2_y) * (ar2_x - ar1_x)))
                 x = ((y * (ar1_y - ar2_y)) - t) / (ar2_x - ar1_x)
-                c.execute("UPDATE data SET x = ?, y = ? WHERE mac_address = ? AND timestamp = ?;", (x, y, row[0], row[4]))
-                conn.commit()
+                if x < 100.0 and x > -100.0 and y < 100.0 and y > -100.0:
+                    c.execute("UPDATE data SET x = ?, y = ? WHERE mac_address = ? AND timestamp = ?;", (x, y, row[0], row[4]))
+                    conn.commit()
+                else:
+                    c.execute("DELETE FROM data WHERE mac_address = ? AND timestamp = ?;", (row[0], row[4]))
+                    conn.commit()
         conn.close
         print("DONE")
     except Exception as e: print(e)
@@ -232,12 +236,12 @@ def trilaterate1():
     
 if __name__ == '__main__':
     print("RUNNING SETUP")
-    #setup()
+    setup()
     print("LOADING DATA")
-    #load()
+    load()
     print("PREDICTING DISTANCES")
-    #predict()
+    predict()
     print("CLEANING DATA")
-    #clean()
+    clean()
     print("TRILATERATING")
     trilaterate()
